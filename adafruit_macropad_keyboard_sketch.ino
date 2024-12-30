@@ -3,7 +3,7 @@
 #include <RotaryEncoder.h>
 #include <Wire.h>
 #include <Keyboard.h>
-#include <map>
+#include <ArxContainer.h>
 
 // Create the neopixel strip with the built in definitions NUM_NEOPIXEL and PIN_NEOPIXEL
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUM_NEOPIXEL, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -16,6 +16,8 @@ RotaryEncoder encoder(PIN_ROTB, PIN_ROTA, RotaryEncoder::LatchMode::FOUR3);
 void checkPosition() {  encoder.tick(); } // just call tick() to check the state.
 // our encoder position state
 int encoder_pos = 0;
+int encoder_direction = 0;
+int menu_pos = 0;
 int cursorRowPosition = 0;
 int brightnessValue = 40;
 
@@ -34,17 +36,36 @@ char keyMap[12][3] = {
 
 bool keyDown[12];
 
-String menuOptions[] = { "Assign Keys", "Settings" };
-
-String settingsOptions[] = { "Key Brightness", "Key Colors" };
-
 int brightnessOptions[] = { 10, 20, 30, 40, 50, 60, 70, 80 };
 
-// String &currentMenu[] = menuOptions;
-map<String, String[]> menus = {
-  {"main", menuOptions},
-  {"settings", settingsOptions}
+std::map<String, uint32_t> ledColorMap {{"white", pixels.Color(255, 255, 255)}, {"green", pixels.Color(5, 250, 5)}, {"blue", pixels.Color(5, 5, 250)}, {"yellow", pixels.Color(255,255,0)}, {"purple", pixels.Color(180, 0, 160)}, {"red", pixels.Color(255, 0, 3)}};
+
+std::map<int, String> keyColorMap {{0, "green"}, {1, "yellow"}, {2, "white"}, {3, "blue"}, {4, "green"}, {5, "white"}, {6, "purple"}, {7, "green"}, {8, "yellow"}, {9, "red"}, {10, "yellow"}, {11, "yellow"} };
+
+typedef struct { 
+  uint8_t index;
+  const char* values[3];
+} menu;
+
+menu listOfMenus[] {
+    {0, { "Assign Keys", "Settings" }},
+    {1, { "Key Brightness", "Key Colors", "BACK" }},
+};
+
+int currentMenuIndex = 0;
+String currentMenuOption;
+
+int setLengthOfCurrentMenuArray(){
+  int counter = 0;
+    for(String test : listOfMenus[currentMenuIndex].values){
+      if(test.length() > 1){
+        counter++;
+      }
+    }
+    return counter;
 }
+
+int lengthOfCurrentMenuArray = setLengthOfCurrentMenuArray();
 
 void setup() {
   Serial.begin(115200);
@@ -101,23 +122,12 @@ void loop() {
   cursorRowPosition = 0;
   display.setCursor(0,cursorRowPosition);
   display.println("* Adafruit Macropad *");
-  
-  encoder.tick();          // check the encoder
-  int newPos = encoder.getPosition();
-  if (encoder_pos != newPos) {
-    Serial.print("Encoder:");
-    Serial.print(newPos);
-    Serial.print(" Direction:");
-    Serial.println((int)(encoder.getDirection()));
-    encoder_pos = newPos;
-  }
 
+  readAndSetEncoderPositions();
   drawMenu();
 
-  // Not currently necessary
+  // Not currently necessary:
   // ScanI2C();
-  
-  // check encoder press
   
   if (!digitalRead(PIN_SWITCH)) {
     //display.setCursor(0, 24);
@@ -144,16 +154,23 @@ void loop() {
     }
 
   } else {
+    if(encoderDown == true){
+    // if encoder was pressed but since let go a menu option was selected
+    // execute selection
+      changeMenu();
+    }
+    // then reset the values
     encoderDown = false;
     encoderDownTime = 0;
   }
   
 
-  for(int i=0; i< pixels.numPixels(); i++) {
-    // pixels.setPixelColor(i, Wheel(((i * 256 / pixels.numPixels()) + j) & 255));
-    pixels.setPixelColor(i, colorPicker(i));
+  // set color for leds under keys
+  for (const auto& m : keyColorMap) {
+    pixels.setPixelColor(m.first, ledColorMap[m.second]);
   }
   
+  // loop through all 12 keys to check if one was pressed
   for (int i=0; i<12; i++) {
     if (!digitalRead(i + 1)) { // switch pressed!
       Serial.print("Switch "); Serial.println(i);
@@ -166,7 +183,7 @@ void loop() {
     }
   }
 
-  // show neopixels, incredment swirl
+  // show neopixels, increment swirl
   pixels.show();
   j++;
 
@@ -174,64 +191,74 @@ void loop() {
   display.display();
 }
 
-void changeMenu(int menuOptionChosen) {
+void readAndSetEncoderPositions(){
+  encoder.tick();
+  int newPos = encoder.getPosition();
+  encoder_direction = (int)(encoder.getDirection());
+  if (encoder_pos != newPos) {
+    Serial.print("Encoder:");
+    Serial.print(newPos);
+    Serial.print(" Direction:");
+    Serial.println(encoder_direction);
+    encoder_pos = newPos;
+    
+    menu_pos += encoder_direction;
+    if (menu_pos == lengthOfCurrentMenuArray) {
+      menu_pos = 0;
+    } else if (menu_pos == -1){
+      menu_pos = lengthOfCurrentMenuArray - 1;
+    }
+  }
+}
+
+void changeMenu() {
+  currentMenuIndex = menu_pos;
+  menu_pos = 0;
+  lengthOfCurrentMenuArray = setLengthOfCurrentMenuArray();
 }
 
 void drawMenu(){
   cursorRowPosition += 16;
   display.setCursor(0, cursorRowPosition);
-  // display.print("Rotary encoder: ");
-  // display.print(encoder_pos);
   display.print("MENU OPTIONS: ");
-  // for(String option : menuOptions) {
-  // for(int i=0; i<2; i++) {
+
   int counter = 0;
-  for(String option : menuOptions) {
+  for(String test : listOfMenus[currentMenuIndex].values){
     cursorRowPosition += 8;
     display.setCursor(0, cursorRowPosition);
-    if(encoder_pos == counter){
+    if(menu_pos == counter){
       display.setTextColor(SH110X_BLACK, SH110X_WHITE);
-      display.print(menuOptions[counter]);                 
+      display.print(test);
       display.setTextColor(SH110X_WHITE, SH110X_BLACK);
+      currentMenuOption = test;
     } else {
-      display.print(menuOptions[counter]);
+      display.print(test);
     }
     counter++;
   }
 }
 
 void executeKeyMap(int keyNumber) {
-  // move the text into a 3x4 grid
-  // display.setCursor(((i-1) % 3)*48, 32 + ((i-1)/3)*8);
-  pixels.setPixelColor(keyNumber, 0xFFFFFF);  // make white
-  
-  display.print("KEY ");
-  display.print(keyNumber + 1);
-  display.print(": ");
-  display.print(sizeof(keyMap[keyNumber]));
-
   for (int i=0; i<sizeof(keyMap[keyNumber]); i++) {
     Keyboard.press(keyMap[keyNumber][i]);
   }
-
   Keyboard.releaseAll();
 }
 
 void toggleLights() {
   if(lightsOff == true){
-    Serial.println("leds and display turned on");
     // if lights off is currently true, turn on lights
+    Serial.println("leds and display turned on");
     pixels.setBrightness(brightnessValue);
     display.oled_command(SH110X_DISPLAYON);
     lightsOff = false;
   } else {
-    Serial.println("leds and display turned off");
     // if lights off is currently false, turn lights off
+    Serial.println("leds and display turned off");
     pixels.setBrightness(0);
     display.oled_command(SH110X_DISPLAYOFF);
     lightsOff = true;
   }
-
 }
 
 void toggleKeyFunc(){
@@ -239,64 +266,6 @@ void toggleKeyFunc(){
     keysOn = false;
   } else {
     keysOn = true;
-  }
-}
-
-// Input a value 0 to 255 to get a color value.
-// The colours are a transition r - g - b - back to r.
-uint32_t Wheel(byte WheelPos) {
-  if(WheelPos < 85) {
-   return pixels.Color(255 - WheelPos * 3, 0, WheelPos * 3);
-  } else if(WheelPos < 170) {
-   WheelPos -= 85;
-   return pixels.Color(0, WheelPos * 3, 255 - WheelPos * 3);
-  } else {
-   WheelPos -= 170;
-   return pixels.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
-  }
-}
-
-uint32_t colorPicker(int keyNumber) {
-  switch (keyNumber) {
-    case 0:
-      return pixels.Color(5, 250, 5);
-      break;
-    case 1:
-      return pixels.Color(255,165,0);
-      break;
-    case 2:
-      return pixels.Color(255, 255, 255);
-      break;
-    case 3:
-      return pixels.Color(5, 5, 250);
-      break;
-    case 4:
-      return pixels.Color(100, 250, 0);
-      break;
-    case 5:
-      return pixels.Color(255, 255, 255);
-      break;
-    case 6:
-      return pixels.Color(180, 0, 160);
-      break;
-    case 7:
-      return pixels.Color(5, 250, 5);
-      break;
-    case 8:
-      return pixels.Color(255,255,0);
-      break;
-    case 9:
-      return pixels.Color(255, 0, 3);
-      break;
-    case 10:
-      return pixels.Color(255,255,0);
-      break;
-    case 11:
-      return pixels.Color(255,255,0);
-      break;
-    default:
-      return pixels.Color(255, 255, 255);
-      break;
   }
 }
 
