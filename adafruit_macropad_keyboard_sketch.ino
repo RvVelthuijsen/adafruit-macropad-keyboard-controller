@@ -23,6 +23,7 @@ int brightnessValue = 40;
 
 bool lightsOff = false;
 bool keysOn = true;
+bool inMenu = false;
 
 bool encoderDown = false;
 unsigned long encoderDownTime = 0;
@@ -124,7 +125,11 @@ void loop() {
   display.println("* Adafruit Macropad *");
 
   readAndSetEncoderPositions();
-  drawMenu();
+  if (inMenu){
+    setBrightness();
+  } else {
+    drawMenu();
+  }
 
   // Not currently necessary:
   // ScanI2C();
@@ -212,7 +217,14 @@ void readAndSetEncoderPositions(){
 }
 
 void changeMenu() {
-  currentMenuIndex = menu_pos;
+  if (currentMenuOption == "BACK"){
+    currentMenuIndex = 0;
+  } else if (currentMenuOption == "Key Brightness") {
+    inMenu = true;
+    currentMenuIndex = 0;
+  } else {
+    currentMenuIndex = menu_pos;
+  }
   menu_pos = 0;
   lengthOfCurrentMenuArray = setLengthOfCurrentMenuArray();
 }
@@ -266,6 +278,19 @@ void toggleKeyFunc(){
     keysOn = false;
   } else {
     keysOn = true;
+  }
+}
+
+void setBrightness(){
+  display.println("Brightness:");
+  display.println(brightnessValue);
+
+  brightnessValue += encoder_direction;
+  brightnessValue = constrain(brightnessValue,0, 255);
+
+  pixels.setBrightness(brightnessValue);
+  if (!digitalRead(PIN_SWITCH)) {
+    inMenu = false;
   }
 }
 
