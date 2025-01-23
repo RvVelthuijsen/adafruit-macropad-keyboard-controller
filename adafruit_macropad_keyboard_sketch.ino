@@ -3,7 +3,6 @@
 #include <RotaryEncoder.h>
 #include <Wire.h>
 #include <Keyboard.h>
-// #include <ArxContainer.h>
 
 // Create the neopixel strip with the built in definitions NUM_NEOPIXEL and PIN_NEOPIXEL
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUM_NEOPIXEL, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -24,6 +23,7 @@ int brightnessValue = 40;
 bool lightsOff = false;
 bool keysOn = true;
 bool inMenu = false;
+bool inSubMenu = false;
 
 bool encoderDown = false;
 unsigned long encoderDownTime = 0;
@@ -37,16 +37,12 @@ char keyMap[12][3] = {
 
 bool keyDown[12];
 
-int brightnessOptions[] = { 10, 20, 30, 40, 50, 60, 70, 80 };
-
-//std::map<String, uint32_t> ledColorMap {{"white", pixels.Color(255, 255, 255)}, {"green", pixels.Color(5, 250, 5)}, {"blue", pixels.Color(5, 5, 250)}, {"yellow", pixels.Color(255,255,0)}, {"purple", pixels.Color(180, 0, 160)}, {"red", pixels.Color(255, 0, 3)}};
-
-//std::map<int, String> keyColorMap {{0, "green"}, {1, "yellow"}, {2, "white"}, {3, "blue"}, {4, "green"}, {5, "white"}, {6, "purple"}, {7, "green"}, {8, "yellow"}, {9, "red"}, {10, "yellow"}, {11, "yellow"} };
-
 typedef struct { 
   uint8_t index;
   const char* values[3];
 } menu;
+
+
 
 typedef struct { 
   String colorName;
@@ -87,23 +83,107 @@ menu listOfMenus[] {
     {1, { "Key Brightness", "Key Colors", "BACK" }},
 };
 
-int currentMenuIndex = 0;
-String currentMenuOption;
+typedef struct {
+  String subMenuOptionName;
+} subMenuItem;
 
-int setLengthOfCurrentMenuArray(){
-  int counter = 0;
-    for(String test : listOfMenus[currentMenuIndex].values){
-      if(test.length() > 1){
-        counter++;
+typedef struct { 
+  String menuOptionName;
+  subMenuItem subMenuOptions[3];
+} menuItem;
+
+typedef struct { 
+  subMenuItem subMenuOptions[3];
+} testMenuItem;
+
+
+menuItem menus[] {
+    {"Assign Keys", {{"Key Functionality"}, {"Key Color"}, {"BACK"}} },
+    {"Settings",  {{"LED Brightness"}, {"Key Colors"}, {"BACK"}} },
+};
+
+class MenuManager {
+  private:
+    testMenuItem mainMenu = { {{"Assign Keys"}, {"Settings"}, {"TEST"}} };
+    testMenuItem keyMenu = { {{"Key Functionality"}, {"Key Color"}, {"BACK"}} };
+    testMenuItem optionsMenu = { {{"LED Brightness"}, {"Key Colors"}, {"BACK"}} };
+    testMenuItem activeMenu;
+  public: 
+    String currentMenuOption;
+
+    testMenuItem getActiveMenu() {
+      return activeMenu;
+    }
+
+    int getActiveMenuLength() {
+      return sizeof(activeMenu.subMenuOptions) / sizeof(activeMenu.subMenuOptions[0]);
+    }
+
+    void setActiveMenu(int menuToSet) {
+      switch(menuToSet) {
+        case 0:
+          for (int i = 0; i <3; i++) {
+            activeMenu.subMenuOptions[i] = mainMenu.subMenuOptions[i];
+          }
+          break;
+        case 1:
+          for (int i = 0; i <3; i++) {
+            activeMenu.subMenuOptions[i] = keyMenu.subMenuOptions[i];
+          }
+          break;
+        case 2:
+          for (int i = 0; i <3; i++) {
+            activeMenu.subMenuOptions[i] = optionsMenu.subMenuOptions[i];
+          }
+          break;
       }
     }
-    return counter;
-}
 
-int lengthOfCurrentMenuArray = setLengthOfCurrentMenuArray();
+    void drawMenuTest(){
+    cursorRowPosition += 16;
+    display.setCursor(0, cursorRowPosition);
+    display.print("MENU OPTIONS:");
+
+    int counter = 0;
+    for(subMenuItem menuItem : activeMenu.subMenuOptions){
+      cursorRowPosition += 8;
+      display.setCursor(0, cursorRowPosition);
+
+      if(menu_pos == counter){
+        display.setTextColor(SH110X_BLACK, SH110X_WHITE);
+        display.print(menuItem.subMenuOptionName);
+        display.setTextColor(SH110X_WHITE, SH110X_BLACK);
+        currentMenuOption = menuItem.subMenuOptionName;
+      } else {
+        display.print(menuItem.subMenuOptionName);
+      }
+      counter++;
+    }
+  }
+};
+
+
+
+int currentMenuIndex = 0;
+// String currentMenuOption;
+
+// int setLengthOfCurrentMenuArray(){
+//   int counter = 0;
+//     for(String test : listOfMenus[currentMenuIndex].values){
+//       if(test.length() > 1){
+//         counter++;
+//       }
+//     }
+//     return counter;
+// }
+
+MenuManager myMenuManager;
 
 void setup() {
   Serial.begin(115200);
+
+  myMenuManager.setActiveMenu(0);
+ 
   //while (!Serial) { delay(10); }     // wait till serial port is opened
   delay(100);  // RP2040 delay is not a bad idea
 
@@ -162,19 +242,14 @@ void loop() {
   if (inMenu){
     setBrightness();
   } else {
-    drawMenu();
+    myMenuManager.drawMenuTest();
   }
 
   // Not currently necessary:
   // ScanI2C();
   
+  // detect if encoder is pressed
   if (!digitalRead(PIN_SWITCH)) {
-    //display.setCursor(0, 24);
-    //display.print("Encoder pressed ");
-    //pixels.setBrightness(255);     // bright!
-    
-    Serial.println("Encoder button pressed");
-
     if (encoderDown == true){
       // if encoder was already down last loop
       unsigned long timePassed = millis() - encoderDownTime;
@@ -246,51 +321,78 @@ void readAndSetEncoderPositions(){
     Serial.println(encoder_direction);
     encoder_pos = newPos;
     
+    int lengthOfCurrentMenu = myMenuManager.getActiveMenuLength();
     menu_pos += encoder_direction;
-    if (menu_pos == lengthOfCurrentMenuArray) {
+    if (menu_pos == lengthOfCurrentMenu) {
       menu_pos = 0;
     } else if (menu_pos == -1){
-      menu_pos = lengthOfCurrentMenuArray - 1;
+      menu_pos = lengthOfCurrentMenu - 1;
     }
   }
 }
 
 void changeMenu() {
-  if (currentMenuOption == "BACK"){
+  if (myMenuManager.currentMenuOption == "BACK"){
     currentMenuIndex = 0;
-  } else if (currentMenuOption == "Key Brightness") {
+    inSubMenu = false;
+  } else if (myMenuManager.currentMenuOption == "LED Brightness") {
     inMenu = true;
     currentMenuIndex = 0;
   } else {
+    inSubMenu = true;
     currentMenuIndex = menu_pos;
   }
   menu_pos = 0;
-  lengthOfCurrentMenuArray = setLengthOfCurrentMenuArray();
 }
 
 void drawMenu(){
   cursorRowPosition += 16;
   display.setCursor(0, cursorRowPosition);
-  display.print("MENU OPTIONS: ");
+  display.print("MENU OPTIONS:");
 
   int counter = 0;
-  for(String test : listOfMenus[currentMenuIndex].values){
+  for(menuItem menuOption : menus){
     cursorRowPosition += 8;
     display.setCursor(0, cursorRowPosition);
+
     if(menu_pos == counter){
       display.setTextColor(SH110X_BLACK, SH110X_WHITE);
-      display.print(test);
+      display.print(menuOption.menuOptionName);
       display.setTextColor(SH110X_WHITE, SH110X_BLACK);
-      currentMenuOption = test;
+      myMenuManager.currentMenuOption = menuOption.menuOptionName;
     } else {
-      display.print(test);
+      display.print(menuOption.menuOptionName);
     }
     counter++;
   }
 }
 
+// void drawMenuTest(){
+//   cursorRowPosition += 16;
+//   display.setCursor(0, cursorRowPosition);
+//   display.print("MENU OPTIONS:");
+
+//   testMenuItem activeMenu = myMenuManager.getActiveMenu();
+
+//   int counter = 0;
+//   for(subMenuItem menuItem : activeMenu.subMenuOptions){
+//     cursorRowPosition += 8;
+//     display.setCursor(0, cursorRowPosition);
+
+//     if(menu_pos == counter){
+//       display.setTextColor(SH110X_BLACK, SH110X_WHITE);
+//       display.print(menuItem.subMenuOptionName);
+//       display.setTextColor(SH110X_WHITE, SH110X_BLACK);
+//       currentMenuOption = menuItem.subMenuOptionName;
+//     } else {
+//       display.print(menuItem.subMenuOptionName);
+//     }
+//     counter++;
+//   }
+// }
+
 void executeKeyMap(int keyNumber) {
-  for (int i=0; i<sizeof(keyMap[keyNumber]); i++) {inMenu
+  for (int i=0; i<sizeof(keyMap[keyNumber]); i++) {
     Keyboard.press(keyMap[keyNumber][i]);
   }
   Keyboard.releaseAll();
