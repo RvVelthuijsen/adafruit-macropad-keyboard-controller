@@ -3,7 +3,7 @@
 #include <RotaryEncoder.h>
 #include <Wire.h>
 #include <Keyboard.h>
-#include <ArxContainer.h>
+// #include <ArxContainer.h>
 
 // Create the neopixel strip with the built in definitions NUM_NEOPIXEL and PIN_NEOPIXEL
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUM_NEOPIXEL, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
@@ -39,14 +39,48 @@ bool keyDown[12];
 
 int brightnessOptions[] = { 10, 20, 30, 40, 50, 60, 70, 80 };
 
-std::map<String, uint32_t> ledColorMap {{"white", pixels.Color(255, 255, 255)}, {"green", pixels.Color(5, 250, 5)}, {"blue", pixels.Color(5, 5, 250)}, {"yellow", pixels.Color(255,255,0)}, {"purple", pixels.Color(180, 0, 160)}, {"red", pixels.Color(255, 0, 3)}};
+//std::map<String, uint32_t> ledColorMap {{"white", pixels.Color(255, 255, 255)}, {"green", pixels.Color(5, 250, 5)}, {"blue", pixels.Color(5, 5, 250)}, {"yellow", pixels.Color(255,255,0)}, {"purple", pixels.Color(180, 0, 160)}, {"red", pixels.Color(255, 0, 3)}};
 
-std::map<int, String> keyColorMap {{0, "green"}, {1, "yellow"}, {2, "white"}, {3, "blue"}, {4, "green"}, {5, "white"}, {6, "purple"}, {7, "green"}, {8, "yellow"}, {9, "red"}, {10, "yellow"}, {11, "yellow"} };
+//std::map<int, String> keyColorMap {{0, "green"}, {1, "yellow"}, {2, "white"}, {3, "blue"}, {4, "green"}, {5, "white"}, {6, "purple"}, {7, "green"}, {8, "yellow"}, {9, "red"}, {10, "yellow"}, {11, "yellow"} };
 
 typedef struct { 
   uint8_t index;
   const char* values[3];
 } menu;
+
+typedef struct { 
+  String colorName;
+  uint32_t color;
+} colorOption;
+
+typedef struct { 
+  uint8_t keyIndex;
+  String colorName;
+} keyColorMapItem;
+
+keyColorMapItem keyColorMap[] {
+  {0, "green"}, 
+  {1, "yellow"}, 
+  {2, "white"}, 
+  {3, "blue"}, 
+  {4, "green"}, 
+  {5, "white"}, 
+  {6, "purple"}, 
+  {7, "green"}, 
+  {8, "yellow"}, 
+  {9, "red"}, 
+  {10, "yellow"}, 
+  {11, "yellow"}   
+};
+
+colorOption colorOptions[] {
+  {"white", pixels.Color(255, 255, 255)}, 
+  {"green", pixels.Color(5, 250, 5)}, 
+  {"blue", pixels.Color(5, 5, 250)}, 
+  {"yellow", pixels.Color(255,255,0)}, 
+  {"purple", pixels.Color(180, 0, 160)}, 
+  {"red", pixels.Color(255, 0, 3)}
+};
 
 menu listOfMenus[] {
     {0, { "Assign Keys", "Settings" }},
@@ -160,7 +194,7 @@ void loop() {
 
   } else {
     if(encoderDown == true){
-    // if encoder was pressed but since let go a menu option was selected
+    // if encoder was pressed but since let go it means a menu option was selected
     // execute selection
       changeMenu();
     }
@@ -171,8 +205,13 @@ void loop() {
   
 
   // set color for leds under keys
-  for (const auto& m : keyColorMap) {
-    pixels.setPixelColor(m.first, ledColorMap[m.second]);
+  for (const auto& key : keyColorMap) {
+    //pixels.setPixelColor(m.first, ledColorMap[m.second]);
+    for (const auto& colorOption : colorOptions) {
+      if (key.colorName == colorOption.colorName){
+        pixels.setPixelColor(key.keyIndex, colorOption.color);
+      }
+    }
   }
   
   // loop through all 12 keys to check if one was pressed
@@ -251,7 +290,7 @@ void drawMenu(){
 }
 
 void executeKeyMap(int keyNumber) {
-  for (int i=0; i<sizeof(keyMap[keyNumber]); i++) {
+  for (int i=0; i<sizeof(keyMap[keyNumber]); i++) {inMenu
     Keyboard.press(keyMap[keyNumber][i]);
   }
   Keyboard.releaseAll();
