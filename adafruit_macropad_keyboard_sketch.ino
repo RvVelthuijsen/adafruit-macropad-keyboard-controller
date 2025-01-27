@@ -22,8 +22,7 @@ int brightnessValue = 40;
 
 bool lightsOff = false;
 bool keysOn = true;
-bool inMenu = false;
-bool inSubMenu = false;
+bool hasBeenToggled = false;
 
 bool encoderDown = false;
 unsigned long encoderDownTime = 0;
@@ -36,12 +35,6 @@ char keyMap[12][3] = {
 };  
 
 bool keyDown[12];
-
-typedef struct { 
-  uint8_t index;
-  const char* values[3];
-} menu;
-
 
 
 typedef struct { 
@@ -66,7 +59,7 @@ keyColorMapItem keyColorMap[] {
   {8, "yellow"}, 
   {9, "red"}, 
   {10, "yellow"}, 
-  {11, "yellow"}   
+  {11, "yellow"}
 };
 
 colorOption colorOptions[] {
@@ -78,121 +71,129 @@ colorOption colorOptions[] {
   {"red", pixels.Color(255, 0, 3)}
 };
 
-menu listOfMenus[] {
-    {0, { "Assign Keys", "Settings" }},
-    {1, { "Key Brightness", "Key Colors", "BACK" }},
-};
 
-typedef struct {
-  String subMenuOptionName;
-} subMenuItem;
-
-typedef struct { 
-  String menuOptionName;
-  subMenuItem subMenuOptions[3];
-} menuItem;
-
-typedef struct { 
-  subMenuItem subMenuOptions[3];
-} testMenuItem;
+typedef void (*funcPtr)();
+typedef void (*funcPtrStr)(String);
 
 
-menuItem menus[] {
-    {"Assign Keys", {{"Key Functionality"}, {"Key Color"}, {"BACK"}} },
-    {"Settings",  {{"LED Brightness"}, {"Key Colors"}, {"BACK"}} },
-};
+void inputCallback(String test) {
+    // Do stuff with value
+    Serial.println(test);
+}
 
-class MenuManager {
-  private:
-    testMenuItem mainMenu = { {{"Assign Keys"}, {"Settings"}, {"TEST"}} };
-    testMenuItem keyMenu = { {{"Key Functionality"}, {"Key Color"}, {"BACK"}} };
-    testMenuItem optionsMenu = { {{"LED Brightness"}, {"Key Colors"}, {"BACK"}} };
-    testMenuItem activeMenu;
-  public: 
-    String currentMenuOption;
+void inputCallbackNew() {
+    // Do stuff with value
+    Serial.println("test sub");
+}
 
-    testMenuItem getActiveMenu() {
-      return activeMenu;
+
+class BasicMenuItem {
+  protected:
+    const char* title = NULL;
+    bool isSubItem = false;
+    funcPtr callback;
+
+  public:
+    BasicMenuItem(const char* title) : title(title) {}
+    bool isActionable = false;
+
+    void draw(){
+      Serial.println(title);
     }
 
-    int getActiveMenuLength() {
-      return sizeof(activeMenu.subMenuOptions) / sizeof(activeMenu.subMenuOptions[0]);
-    }
-
-    void setActiveMenu(int menuToSet) {
-      switch(menuToSet) {
-        case 0:
-          for (int i = 0; i <3; i++) {
-            activeMenu.subMenuOptions[i] = mainMenu.subMenuOptions[i];
-          }
-          break;
-        case 1:
-          for (int i = 0; i <3; i++) {
-            activeMenu.subMenuOptions[i] = keyMenu.subMenuOptions[i];
-          }
-          break;
-        case 2:
-          for (int i = 0; i <3; i++) {
-            activeMenu.subMenuOptions[i] = optionsMenu.subMenuOptions[i];
-          }
-          break;
-      }
-    }
-
-    void drawMenuTest(){
-    cursorRowPosition += 16;
-    display.setCursor(0, cursorRowPosition);
-    display.print("MENU OPTIONS:");
-
-    int counter = 0;
-    for(subMenuItem menuItem : activeMenu.subMenuOptions){
-      cursorRowPosition += 8;
-      display.setCursor(0, cursorRowPosition);
-
-      if(menu_pos == counter){
+    void drawItem(bool hovered){
+      if (hovered == true) {
         display.setTextColor(SH110X_BLACK, SH110X_WHITE);
-        display.print(menuItem.subMenuOptionName);
-        display.setTextColor(SH110X_WHITE, SH110X_BLACK);
-        currentMenuOption = menuItem.subMenuOptionName;
-      } else {
-        display.print(menuItem.subMenuOptionName);
       }
-      counter++;
+      display.println(title);
+      display.setTextColor(SH110X_WHITE, SH110X_BLACK);
     }
-  }
+
+    void executeCallbackAction(){
+      callback();
+    }
 };
 
+// class ParentMenuItem : public BasicMenuItem {
+//   public:
+//     ParentMenuItem(const char* title) : BasicMenuItem{title} {}
 
+// };
 
-int currentMenuIndex = 0;
-// String currentMenuOption;
+class ActionMenuItem : public BasicMenuItem {
+  public:
+    ActionMenuItem(const char* title, funcPtr callBackFunc) : BasicMenuItem{title} {
+      callback = callBackFunc;
+      isActionable = true;
+    }
 
-// int setLengthOfCurrentMenuArray(){
-//   int counter = 0;
-//     for(String test : listOfMenus[currentMenuIndex].values){
-//       if(test.length() > 1){
-//         counter++;
-//       }
-//     }
-//     return counter;
-// }
+};
 
-MenuManager myMenuManager;
+class TestingMenuScreen {
+  private:
+    BasicMenuItem** items = NULL;
+    uint8_t itemCount = 0;
+
+  public:
+    TestingMenuScreen(BasicMenuItem** items) : items(items) {
+      while (items[itemCount] != nullptr) {
+        itemCount++;
+      }
+    }
+    
+    int cursorPosition = 0;
+    bool runningCallback = false;
+
+    int getCurrentMenuLength(){
+      return itemCount;
+    }
+
+    bool isCurrentItemActionable(){
+      return items[cursorPosition]->isActionable;
+    }
+
+    void runCallBack(){
+      items[cursorPosition]->executeCallbackAction();
+    }
+
+    void printValues(){
+      for (int i = 0; i < itemCount; i++){
+        items[i]->draw();
+      }
+    }
+
+    void printLength(){
+      Serial.println(itemCount);
+    }
+
+    void drawMenu(){
+      display.println("OPTIONS:");
+      for (int i = 0; i < itemCount; i++){
+        display.setCursor(0, cursorRowPosition += 8);
+        items[i]->drawItem(i == cursorPosition ? true : false);
+      }
+    }
+};
+
+BasicMenuItem* test[] = { new BasicMenuItem("Assign Keys"), new BasicMenuItem("Settings"), new ActionMenuItem("Key Brightness", &setBrightness) };
+TestingMenuScreen* screen = new TestingMenuScreen(test);
+
+// Test testTwo = { new ActionMenuItem("Key Brightness", &inputCallbackNew), new ActionMenuItem("Key Test", &inputCallbackNew), new ActionMenuItem("Key Test3", &inputCallbackNew) };
+// TestingMenuScreen* screenTwo = new TestingMenuScreen(testTwo, sizeof(testTwo) / sizeof(testTwo[0]));
 
 void setup() {
   Serial.begin(115200);
-
-  myMenuManager.setActiveMenu(0);
- 
   //while (!Serial) { delay(10); }     // wait till serial port is opened
   delay(100);  // RP2040 delay is not a bad idea
-
-  Serial.println("Adafruit Macropad with RP2040");
 
   // start pixels!
   pixels.begin();
   pixels.setBrightness(brightnessValue);
   pixels.show(); // Initialize all pixels to 'off'
+
+  // set color for leds under keys
+  setAllKeyColors();
+  pixels.show();
 
   // Start OLED
   display.begin(0, true); // we dont use the i2c address but we will reset!
@@ -216,6 +217,7 @@ void setup() {
   display.setTextSize(1);
   display.setTextWrap(false);
   display.setTextColor(SH110X_WHITE, SH110X_BLACK); // white text, black background
+  display.clearDisplay();
 
   // Enable speaker
   pinMode(PIN_SPEAKER_ENABLE, OUTPUT);
@@ -229,24 +231,22 @@ void setup() {
   delay(200);
 }
 
-uint8_t j = 0;
-bool i2c_found[128] = {false};
 
 void loop() {
   display.clearDisplay();
   cursorRowPosition = 0;
-  display.setCursor(0,cursorRowPosition);
+  display.setCursor(0, cursorRowPosition);
   display.println("* Adafruit Macropad *");
+  display.setCursor(0, cursorRowPosition += 16);
 
   readAndSetEncoderPositions();
-  if (inMenu){
-    setBrightness();
+
+  if (screen->runningCallback == true){
+    screen->runCallBack();
   } else {
-    myMenuManager.drawMenuTest();
+    screen->drawMenu();
   }
 
-  // Not currently necessary:
-  // ScanI2C();
   
   // detect if encoder is pressed
   if (!digitalRead(PIN_SWITCH)) {
@@ -254,39 +254,36 @@ void loop() {
       // if encoder was already down last loop
       unsigned long timePassed = millis() - encoderDownTime;
 
-      if (timePassed >= 3000){
+      if (timePassed >= 3000 && hasBeenToggled == false){
         toggleLights();
         toggleKeyFunc();
-        encoderDownTime = 0;
-        encoderDown = false;
+        hasBeenToggled = true;
+        //encoderDownTime = 0;
+        // encoderDown = false;
       }
       
     } else {
       // if this is the first loop the encoder is down, set to true and save millis
+      Serial.println("encoder read as high this loop but encoderDown set to false");
       encoderDown = true;
       encoderDownTime = millis();
     }
 
   } else {
-    if(encoderDown == true){
-    // if encoder was pressed but since let go it means a menu option was selected
-    // execute selection
-      changeMenu();
-    }
-    // then reset the values
-    encoderDown = false;
-    encoderDownTime = 0;
-  }
-  
-
-  // set color for leds under keys
-  for (const auto& key : keyColorMap) {
-    //pixels.setPixelColor(m.first, ledColorMap[m.second]);
-    for (const auto& colorOption : colorOptions) {
-      if (key.colorName == colorOption.colorName){
-        pixels.setPixelColor(key.keyIndex, colorOption.color);
+    if(encoderDown == true && hasBeenToggled == true){
+      // encoderDown was still true cause the lights had just been toggled
+      Serial.println("encoder not read as high this loop but encoderDown still set to true and hasbeentoggled true");
+    } else if (encoderDown == true && keysOn == true && lightsOff == false) {
+      // if encoder was pressed but since let go and the lights are one it means a menu option was selected
+      // execute selection
+      if (screen->isCurrentItemActionable() == true) {
+        screen->runningCallback = !screen->runningCallback;
       }
     }
+    // then reset the values
+    hasBeenToggled = false;
+    encoderDown = false;
+    encoderDownTime = 0;
   }
   
   // loop through all 12 keys to check if one was pressed
@@ -302,9 +299,8 @@ void loop() {
     }
   }
 
-  // show neopixels, increment swirl
+  setAllKeyColors();
   pixels.show();
-  j++;
 
   // display oled
   display.display();
@@ -321,78 +317,20 @@ void readAndSetEncoderPositions(){
     Serial.println(encoder_direction);
     encoder_pos = newPos;
     
-    int lengthOfCurrentMenu = myMenuManager.getActiveMenuLength();
-    menu_pos += encoder_direction;
-    if (menu_pos == lengthOfCurrentMenu) {
-      menu_pos = 0;
-    } else if (menu_pos == -1){
-      menu_pos = lengthOfCurrentMenu - 1;
+    if (screen->runningCallback == false) {
+      int lengthOfCurrentMenu = screen->getCurrentMenuLength();
+      screen->cursorPosition += encoder_direction;
+      if (screen->cursorPosition == lengthOfCurrentMenu) {
+        screen->cursorPosition = 0;
+      } else if (screen->cursorPosition == -1){
+        screen->cursorPosition = lengthOfCurrentMenu - 1;
+      }
     }
   }
 }
-
-void changeMenu() {
-  if (myMenuManager.currentMenuOption == "BACK"){
-    currentMenuIndex = 0;
-    inSubMenu = false;
-  } else if (myMenuManager.currentMenuOption == "LED Brightness") {
-    inMenu = true;
-    currentMenuIndex = 0;
-  } else {
-    inSubMenu = true;
-    currentMenuIndex = menu_pos;
-  }
-  menu_pos = 0;
-}
-
-void drawMenu(){
-  cursorRowPosition += 16;
-  display.setCursor(0, cursorRowPosition);
-  display.print("MENU OPTIONS:");
-
-  int counter = 0;
-  for(menuItem menuOption : menus){
-    cursorRowPosition += 8;
-    display.setCursor(0, cursorRowPosition);
-
-    if(menu_pos == counter){
-      display.setTextColor(SH110X_BLACK, SH110X_WHITE);
-      display.print(menuOption.menuOptionName);
-      display.setTextColor(SH110X_WHITE, SH110X_BLACK);
-      myMenuManager.currentMenuOption = menuOption.menuOptionName;
-    } else {
-      display.print(menuOption.menuOptionName);
-    }
-    counter++;
-  }
-}
-
-// void drawMenuTest(){
-//   cursorRowPosition += 16;
-//   display.setCursor(0, cursorRowPosition);
-//   display.print("MENU OPTIONS:");
-
-//   testMenuItem activeMenu = myMenuManager.getActiveMenu();
-
-//   int counter = 0;
-//   for(subMenuItem menuItem : activeMenu.subMenuOptions){
-//     cursorRowPosition += 8;
-//     display.setCursor(0, cursorRowPosition);
-
-//     if(menu_pos == counter){
-//       display.setTextColor(SH110X_BLACK, SH110X_WHITE);
-//       display.print(menuItem.subMenuOptionName);
-//       display.setTextColor(SH110X_WHITE, SH110X_BLACK);
-//       currentMenuOption = menuItem.subMenuOptionName;
-//     } else {
-//       display.print(menuItem.subMenuOptionName);
-//     }
-//     counter++;
-//   }
-// }
 
 void executeKeyMap(int keyNumber) {
-  for (int i=0; i<sizeof(keyMap[keyNumber]); i++) {
+  for (int i = 0; i < sizeof(keyMap[keyNumber]) / sizeof(keyMap[keyNumber][0]); i++) {
     Keyboard.press(keyMap[keyNumber][i]);
   }
   Keyboard.releaseAll();
@@ -422,42 +360,24 @@ void toggleKeyFunc(){
   }
 }
 
-void setBrightness(){
-  display.println("Brightness:");
-  display.println(brightnessValue);
-
-  brightnessValue += encoder_direction;
-  brightnessValue = constrain(brightnessValue,0, 255);
-
-  pixels.setBrightness(brightnessValue);
-  if (!digitalRead(PIN_SWITCH)) {
-    inMenu = false;
-  }
-}
-
-void ScanI2C(){
-    // Scanning takes a while so we don't do it all the time
-  if ((j & 0x3F) == 0) {
-    Serial.println("Scanning I2C: ");
-    Serial.print("Found I2C address 0x");
-    for (uint8_t address = 0; address <= 0x7F; address++) {
-      Wire.beginTransmission(address);
-      i2c_found[address] = (Wire.endTransmission () == 0);
-      if (i2c_found[address]) {
-        Serial.print("0x");
-        Serial.print(address, HEX);
-        Serial.print(", ");
+void setAllKeyColors(){
+  for (const auto& key : keyColorMap) {
+    for (const auto& colorOption : colorOptions) {
+      if (key.colorName == colorOption.colorName){
+        pixels.setPixelColor(key.keyIndex, colorOption.color);
       }
     }
-    Serial.println();
-  }
-  
-  display.setCursor(0, 16);
-  display.print("I2C Scan: ");
-  for (uint8_t address=0; address <= 0x7F; address++) {
-    if (!i2c_found[address]) continue;
-    display.print("0x");
-    display.print(address, HEX);
-    display.print(" ");
   }
 }
+
+void setBrightness(){
+  display.println("Brightness:");
+
+  brightnessValue += encoder_direction;
+  brightnessValue = constrain(brightnessValue, 0, 255);
+
+  display.println(brightnessValue);
+  pixels.setBrightness(brightnessValue);
+
+}
+
