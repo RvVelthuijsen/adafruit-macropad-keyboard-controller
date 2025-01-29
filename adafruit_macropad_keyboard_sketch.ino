@@ -36,6 +36,14 @@ char keyMap[12][3] = {
 
 bool keyDown[12];
 
+class Key {
+  public:
+    Key(int index, char* actions, uint32_t color) : keyIndex(index), keyActions(actions){}
+    int keyIndex;
+    char* keyActions;
+    uint32_t keyColor;
+}
+
 
 typedef struct { 
   String colorName;
@@ -90,12 +98,18 @@ void inputCallbackNew() {
 class BasicMenuItem {
   protected:
     const char* title = NULL;
-    bool isSubItem = false;
     funcPtr callback;
 
   public:
     BasicMenuItem(const char* title) : title(title) {}
     bool isActionable = false;
+    bool isParent = false;
+
+    virtual void testFunc(){}
+
+    const char* getTitle(){
+      return title;
+    }
 
     void draw(){
       Serial.println(title);
@@ -114,20 +128,6 @@ class BasicMenuItem {
     }
 };
 
-// class ParentMenuItem : public BasicMenuItem {
-//   public:
-//     ParentMenuItem(const char* title) : BasicMenuItem{title} {}
-
-// };
-
-class ActionMenuItem : public BasicMenuItem {
-  public:
-    ActionMenuItem(const char* title, funcPtr callBackFunc) : BasicMenuItem{title} {
-      callback = callBackFunc;
-      isActionable = true;
-    }
-
-};
 
 class TestingMenuScreen {
   private:
@@ -135,14 +135,19 @@ class TestingMenuScreen {
     uint8_t itemCount = 0;
 
   public:
-    TestingMenuScreen(BasicMenuItem** items) : items(items) {
+    TestingMenuScreen(BasicMenuItem** items, bool isSubMenu) : items(items) {
       while (items[itemCount] != nullptr) {
+        itemCount++;
+      }
+      if (isSubMenu == true){
+        items[itemCount] = new BasicMenuItem("BACK");
         itemCount++;
       }
     }
     
     int cursorPosition = 0;
     bool runningCallback = false;
+    bool isCurrentlyActive = false;
 
     int getCurrentMenuLength(){
       return itemCount;
@@ -152,8 +157,20 @@ class TestingMenuScreen {
       return items[cursorPosition]->isActionable;
     }
 
+    bool isCurrentItemParent(){
+      return items[cursorPosition]->isParent;
+    }
+
     void runCallBack(){
       items[cursorPosition]->executeCallbackAction();
+    }
+
+    void runSubMenu(){
+      items[cursorPosition]->testFunc();
+    }
+
+    const char* getItemTitle(){
+      return items[cursorPosition]->getTitle();
     }
 
     void printValues(){
@@ -175,11 +192,112 @@ class TestingMenuScreen {
     }
 };
 
-BasicMenuItem* test[] = { new BasicMenuItem("Assign Keys"), new BasicMenuItem("Settings"), new ActionMenuItem("Key Brightness", &setBrightness) };
-TestingMenuScreen* screen = new TestingMenuScreen(test);
+class ParentMenuItem : public BasicMenuItem {
+  public:
+    ParentMenuItem(const char* title, TestingMenuScreen* child) : BasicMenuItem{title}, childMenu(child){
+      isParent = true;
+    }
+    TestingMenuScreen* childMenu;
 
-// Test testTwo = { new ActionMenuItem("Key Brightness", &inputCallbackNew), new ActionMenuItem("Key Test", &inputCallbackNew), new ActionMenuItem("Key Test3", &inputCallbackNew) };
-// TestingMenuScreen* screenTwo = new TestingMenuScreen(testTwo, sizeof(testTwo) / sizeof(testTwo[0]));
+    void testFunc() override {
+      childMenu->isCurrentlyActive = true;
+    }
+
+};
+
+class ActionMenuItem : public BasicMenuItem {
+  public:
+    ActionMenuItem(const char* title, funcPtr callBackFunc) : BasicMenuItem{title} {
+      callback = callBackFunc;
+      isActionable = true;
+    }
+
+};
+
+BasicMenuItem* keyMenuList[] = { new ActionMenuItem("Key Functionality", &setBrightness), new ActionMenuItem("Key Color", &inputCallbackNew), nullptr };
+TestingMenuScreen* keyMenu = new TestingMenuScreen(keyMenuList, true);
+
+BasicMenuItem* settingMenuList[] = { new ActionMenuItem("LED Brightness", &setBrightness), nullptr };
+TestingMenuScreen* settingsMenu = new TestingMenuScreen(settingMenuList, true);
+
+BasicMenuItem* mainMenuList[] = { new ParentMenuItem("Key Management", keyMenu), new ParentMenuItem("Settings", settingsMenu), nullptr };
+TestingMenuScreen* mainMenu = new TestingMenuScreen(mainMenuList, false);
+
+class MenuManager {
+  private:
+    TestingMenuScreen** menuList = NULL;
+    uint8_t menuCount = 0;
+    uint8_t currentActiveMenuIndex = 0;
+
+  public:
+    MenuManager(TestingMenuScreen** list) : menuList(list) {
+      while (menuList[menuCount] != nullptr) {
+        menuCount++;
+      }
+      menuList[0]->isCurrentlyActive = true;
+    }
+    bool runningCallback = false;
+
+    void setCursor(){
+      for (int i = 0; i < menuCount; i++) {
+        if(menuList[i]->isCurrentlyActive == true){
+          int lengthOfCurrentMenu = menuList[i]->getCurrentMenuLength();
+          menuList[i]->cursorPosition += encoder_direction;
+          if (menuList[i]->cursorPosition == lengthOfCurrentMenu) {
+            menuList[i]->cursorPosition = 0;
+          } else if (menuList[i]->cursorPosition == -1){
+            menuList[i]->cursorPosition = lengthOfCurrentMenu - 1;
+          }
+          break;
+        }
+      }
+    }
+
+    void itemPressed(){
+      for (int i = 0; i < menuCount; i++) {
+        if(menuList[i]->isCurrentlyActive == true){
+          if (menuList[i]->isCurrentItemActionable() == true) {
+            menuList[i]->runningCallback = !menuList[i]->runningCallback;
+            runningCallback = !runningCallback;
+            break;
+          } else if (menuList[i]->isCurrentItemParent() == true) {
+            // submenu needs to be activated
+            menuList[i]->isCurrentlyActive = false;
+            menuList[i]->runSubMenu();
+            break;
+          } else if (menuList[i]->getItemTitle() == "BACK") {
+            Serial.println("BACK");
+            menuList[i]->isCurrentlyActive = false;
+            menuList[0]->isCurrentlyActive = true;
+            break;
+          }
+        }
+      }
+    }
+
+    void runCallback() {
+      for (int i = 0; i < menuCount; i++){
+        if(menuList[i]->isCurrentlyActive == true){
+          // Serial.println("menu %d : should only be 0", i);
+          menuList[i]->runCallBack();
+          break;
+        }
+      }
+    }
+
+    void drawActiveMenu(){
+      for (int i = 0; i < menuCount; i++){
+        if(menuList[i]->isCurrentlyActive == true){
+          // Serial.println("menu %d : should only be 0", i);
+          menuList[i]->drawMenu();
+          break;
+        }
+      }
+    }
+};
+
+TestingMenuScreen* menuList[] = {mainMenu, keyMenu, settingsMenu };
+MenuManager* menuManager = new MenuManager(menuList);
 
 void setup() {
   Serial.begin(115200);
@@ -241,10 +359,12 @@ void loop() {
 
   readAndSetEncoderPositions();
 
-  if (screen->runningCallback == true){
-    screen->runCallBack();
+  if (menuManager->runningCallback == true){
+    // screen->runCallBack();
+    menuManager->runCallback();
   } else {
-    screen->drawMenu();
+    // screen->drawMenu();
+    menuManager->drawActiveMenu();
   }
 
   
@@ -276,9 +396,8 @@ void loop() {
     } else if (encoderDown == true && keysOn == true && lightsOff == false) {
       // if encoder was pressed but since let go and the lights are one it means a menu option was selected
       // execute selection
-      if (screen->isCurrentItemActionable() == true) {
-        screen->runningCallback = !screen->runningCallback;
-      }
+      Serial.println("calling itemPressed");
+      menuManager->itemPressed();
     }
     // then reset the values
     hasBeenToggled = false;
@@ -317,14 +436,8 @@ void readAndSetEncoderPositions(){
     Serial.println(encoder_direction);
     encoder_pos = newPos;
     
-    if (screen->runningCallback == false) {
-      int lengthOfCurrentMenu = screen->getCurrentMenuLength();
-      screen->cursorPosition += encoder_direction;
-      if (screen->cursorPosition == lengthOfCurrentMenu) {
-        screen->cursorPosition = 0;
-      } else if (screen->cursorPosition == -1){
-        screen->cursorPosition = lengthOfCurrentMenu - 1;
-      }
+    if (menuManager->runningCallback == false) {
+      menuManager->setCursor();
     }
   }
 }
