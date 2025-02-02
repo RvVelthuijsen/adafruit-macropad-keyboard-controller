@@ -13,62 +13,32 @@ Adafruit_SH1106G display = Adafruit_SH1106G(128, 64, &SPI1, OLED_DC, OLED_RST, O
 // Create the rotary encoder
 RotaryEncoder encoder(PIN_ROTB, PIN_ROTA, RotaryEncoder::LatchMode::FOUR3);
 void checkPosition() {  encoder.tick(); } // just call tick() to check the state.
+
 // our encoder position state
 int encoder_pos = 0;
 int encoder_direction = 0;
-int menu_pos = 0;
-int cursorRowPosition = 0;
-int brightnessValue = 40;
-
-bool lightsOff = false;
-bool keysOn = true;
-bool hasBeenToggled = false;
-
 bool encoderDown = false;
 unsigned long encoderDownTime = 0;
+const int ENCODER_SLEEP_TIME_MILLIS = 3000;
 
-char keyMap[12][3] = {
-{KEY_LEFT_SHIFT, KEY_HOME}, {KEY_LEFT_CTRL, 'x'}, {KEY_LEFT_CTRL, 's'},
-{KEY_LEFT_SHIFT, KEY_END}, {KEY_LEFT_CTRL, 'c'}, {KEY_LEFT_CTRL, '/'},
-{KEY_LEFT_CTRL, 'y'}, {KEY_LEFT_CTRL, 'v'}, {KEY_LEFT_CTRL, KEY_LEFT_SHIFT, KEY_LEFT_ARROW},
-{KEY_LEFT_CTRL, 'z'}, {KEY_LEFT_SHIFT, KEY_LEFT_ALT,	KEY_DOWN_ARROW}, {KEY_LEFT_CTRL, KEY_LEFT_SHIFT, KEY_RIGHT_ARROW},
-};  
+int menu_pos = 0;
+int cursorRowPosition = 0;
 
-bool keyDown[12];
+int brightnessValue = 40;
+bool lightsOff = false;
 
-class Key {
-  public:
-    Key(int index, char* actions, uint32_t color) : keyIndex(index), keyActions(actions){}
-    int keyIndex;
-    char* keyActions;
-    uint32_t keyColor;
-}
+bool hasBeenToggled = false;
+
+
+
+typedef void (*funcPtr)();
+typedef void (*funcPtrStr)(String);
 
 
 typedef struct { 
-  String colorName;
-  uint32_t color;
+  const char* colorName;
+  const uint32_t color;
 } colorOption;
-
-typedef struct { 
-  uint8_t keyIndex;
-  String colorName;
-} keyColorMapItem;
-
-keyColorMapItem keyColorMap[] {
-  {0, "green"}, 
-  {1, "yellow"}, 
-  {2, "white"}, 
-  {3, "blue"}, 
-  {4, "green"}, 
-  {5, "white"}, 
-  {6, "purple"}, 
-  {7, "green"}, 
-  {8, "yellow"}, 
-  {9, "red"}, 
-  {10, "yellow"}, 
-  {11, "yellow"}
-};
 
 colorOption colorOptions[] {
   {"white", pixels.Color(255, 255, 255)}, 
@@ -80,20 +50,106 @@ colorOption colorOptions[] {
 };
 
 
-typedef void (*funcPtr)();
-typedef void (*funcPtrStr)(String);
+typedef struct {
+  const char* keyName;
+  const uint8_t key;
+} KeyAction;
+
+KeyAction actions[] {
+  {"Left shift", KEY_LEFT_SHIFT},
+  {"Left ctrl", KEY_LEFT_CTRL}
+};
 
 
-void inputCallback(String test) {
-    // Do stuff with value
-    Serial.println(test);
-}
+typedef struct { 
+  uint8_t keyIndex;
+  String colorName;
+  uint8_t actions[3];
+  bool isDown;
+} KeyItem;
+
+
+KeyItem* keyMapTest = new KeyItem[12]{
+  {0, "green", {KEY_LEFT_SHIFT, KEY_HOME}},
+  {1, "yellow", {KEY_LEFT_CTRL, 'x'}},
+  {2, "white", {KEY_LEFT_CTRL, 's'}},
+  {3, "blue", {KEY_LEFT_SHIFT, KEY_END}},
+  {4, "green", {KEY_LEFT_CTRL, 'c'}},
+  {5, "white", {KEY_LEFT_CTRL, '/'}},
+  {6, "purple", {KEY_LEFT_CTRL, 'y'}},
+  {7, "green", {KEY_LEFT_CTRL, 'v'}},
+  {8, "yellow", {KEY_LEFT_CTRL, KEY_LEFT_SHIFT, KEY_LEFT_ARROW}},
+  {9, "red", {KEY_LEFT_CTRL, 'z'}},
+  {10, "yellow", {KEY_LEFT_SHIFT, KEY_LEFT_ALT, KEY_DOWN_ARROW}},
+  {11, "yellow", {KEY_LEFT_CTRL, KEY_LEFT_SHIFT, KEY_RIGHT_ARROW}}
+};
+
+
+
+class KeyManager{
+  private:
+    KeyItem* keyMap;
+  public:
+    KeyManager(KeyItem* keys) : keyMap(keys) {}
+    bool keysOn = true;
+
+
+  void setAllKeyColors(){
+    for (uint8_t i = 0; i < 12; i++) {
+      for (const auto& colorOption : colorOptions) {
+        if (keyMap[i].colorName == colorOption.colorName){
+          pixels.setPixelColor(keyMap[i].keyIndex, colorOption.color);
+        }
+      }
+    }
+  }
+
+  void checkForKeyInput(){
+    for (int i = 0; i < 12; i++) {
+      if (!digitalRead(i + 1)) { // switch pressed!
+        Serial.print("Switch "); Serial.println(i);
+        if (isKeyDown(i) == false && keysOn == true) {
+          executeKeyMap(i);
+        }
+        setKeyDown(i, true);
+      } else {
+        setKeyDown(i, false);
+      }
+    }
+  }
+
+  void executeKeyMap(int keyIndex) {
+    for (int i = 0; i < sizeof(keyMap[keyIndex].actions) / sizeof(keyMap[keyIndex].actions[0]); i++) {
+      Keyboard.press(keyMap[keyIndex].actions[i]);
+    }
+    Keyboard.releaseAll();
+  }
+
+  bool isKeyDown(int keyIndex){
+    return keyMap[keyIndex].isDown;
+  }
+
+  void setKeyDown(int keyIndex, bool value) {
+    keyMap[keyIndex].isDown = value;
+  }
+
+  void toggleKeyFunc(){
+    if (keysOn == true) {
+      keysOn = false;
+    } else {
+      keysOn = true;
+    }
+  }
+};
+
+
+KeyManager* keyManager = new KeyManager(keyMapTest);
+
 
 void inputCallbackNew() {
     // Do stuff with value
     Serial.println("test sub");
 }
-
 
 class BasicMenuItem {
   protected:
@@ -310,7 +366,7 @@ void setup() {
   pixels.show(); // Initialize all pixels to 'off'
 
   // set color for leds under keys
-  setAllKeyColors();
+  keyManager->setAllKeyColors();
   pixels.show();
 
   // Start OLED
@@ -374,9 +430,9 @@ void loop() {
       // if encoder was already down last loop
       unsigned long timePassed = millis() - encoderDownTime;
 
-      if (timePassed >= 3000 && hasBeenToggled == false){
+      if (timePassed >= ENCODER_SLEEP_TIME_MILLIS && hasBeenToggled == false){
         toggleLights();
-        toggleKeyFunc();
+        keyManager->toggleKeyFunc();
         hasBeenToggled = true;
         //encoderDownTime = 0;
         // encoderDown = false;
@@ -393,7 +449,7 @@ void loop() {
     if(encoderDown == true && hasBeenToggled == true){
       // encoderDown was still true cause the lights had just been toggled
       Serial.println("encoder not read as high this loop but encoderDown still set to true and hasbeentoggled true");
-    } else if (encoderDown == true && keysOn == true && lightsOff == false) {
+    } else if (encoderDown == true && keyManager->keysOn == true && lightsOff == false) {
       // if encoder was pressed but since let go and the lights are one it means a menu option was selected
       // execute selection
       Serial.println("calling itemPressed");
@@ -406,19 +462,9 @@ void loop() {
   }
   
   // loop through all 12 keys to check if one was pressed
-  for (int i=0; i<12; i++) {
-    if (!digitalRead(i + 1)) { // switch pressed!
-      Serial.print("Switch "); Serial.println(i);
-      if (keyDown[i] == false && keysOn == true) {
-        executeKeyMap(i);
-      }
-      keyDown[i] = true;
-    } else {
-      keyDown[i] = false;
-    }
-  }
+  keyManager->checkForKeyInput();
 
-  setAllKeyColors();
+  keyManager->setAllKeyColors();
   pixels.show();
 
   // display oled
@@ -442,12 +488,7 @@ void readAndSetEncoderPositions(){
   }
 }
 
-void executeKeyMap(int keyNumber) {
-  for (int i = 0; i < sizeof(keyMap[keyNumber]) / sizeof(keyMap[keyNumber][0]); i++) {
-    Keyboard.press(keyMap[keyNumber][i]);
-  }
-  Keyboard.releaseAll();
-}
+
 
 void toggleLights() {
   if(lightsOff == true){
@@ -465,23 +506,9 @@ void toggleLights() {
   }
 }
 
-void toggleKeyFunc(){
-  if (keysOn == true) {
-    keysOn = false;
-  } else {
-    keysOn = true;
-  }
-}
 
-void setAllKeyColors(){
-  for (const auto& key : keyColorMap) {
-    for (const auto& colorOption : colorOptions) {
-      if (key.colorName == colorOption.colorName){
-        pixels.setPixelColor(key.keyIndex, colorOption.color);
-      }
-    }
-  }
-}
+
+
 
 void setBrightness(){
   display.println("Brightness:");
