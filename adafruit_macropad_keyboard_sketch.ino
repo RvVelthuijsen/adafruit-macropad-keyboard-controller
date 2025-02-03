@@ -20,6 +20,8 @@ int encoder_direction = 0;
 bool encoderDown = false;
 unsigned long encoderDownTime = 0;
 const int ENCODER_SLEEP_TIME_MILLIS = 3000;
+const int NUMBER_OF_KEYS = 12;
+const int MAX_NUMBER_OF_ROWS = 5;
 
 int menu_pos = 0;
 int cursorRowPosition = 0;
@@ -30,10 +32,8 @@ bool lightsOff = false;
 bool hasBeenToggled = false;
 
 
-
 typedef void (*funcPtr)();
 typedef void (*funcPtrStr)(String);
-
 
 typedef struct { 
   const char* colorName;
@@ -46,7 +46,8 @@ colorOption colorOptions[] {
   {"blue", pixels.Color(5, 5, 250)}, 
   {"yellow", pixels.Color(255,255,0)}, 
   {"purple", pixels.Color(180, 0, 160)}, 
-  {"red", pixels.Color(255, 0, 3)}
+  {"red", pixels.Color(255, 0, 3)},
+  {"off", pixels.Color(0, 0, 0, 0)}
 };
 
 
@@ -63,13 +64,13 @@ KeyAction actions[] {
 
 typedef struct { 
   uint8_t keyIndex;
-  String colorName;
+  const char* colorName;
   uint8_t actions[3];
   bool isDown;
 } KeyItem;
 
 
-KeyItem* keyMapTest = new KeyItem[12]{
+KeyItem* keyMapTest = new KeyItem[NUMBER_OF_KEYS]{
   {0, "green", {KEY_LEFT_SHIFT, KEY_HOME}},
   {1, "yellow", {KEY_LEFT_CTRL, 'x'}},
   {2, "white", {KEY_LEFT_CTRL, 's'}},
@@ -92,54 +93,159 @@ class KeyManager{
   public:
     KeyManager(KeyItem* keys) : keyMap(keys) {}
     bool keysOn = true;
+    int cursorPosition = 0;
+    int colorCursorPosition = 0;
+    bool inKeyMenu = false;
+    bool drawColorsActive = false;
 
+    
 
-  void setAllKeyColors(){
-    for (uint8_t i = 0; i < 12; i++) {
-      for (const auto& colorOption : colorOptions) {
-        if (keyMap[i].colorName == colorOption.colorName){
-          pixels.setPixelColor(keyMap[i].keyIndex, colorOption.color);
+    void setAllKeyColors(){
+      for (uint8_t i = 0; i < NUMBER_OF_KEYS; i++) {
+        for (const auto& colorOption : colorOptions) {
+          if (keyMap[i].colorName == colorOption.colorName){
+            pixels.setPixelColor(i, colorOption.color);
+          }
         }
       }
     }
-  }
 
-  void checkForKeyInput(){
-    for (int i = 0; i < 12; i++) {
-      if (!digitalRead(i + 1)) { // switch pressed!
-        Serial.print("Switch "); Serial.println(i);
-        if (isKeyDown(i) == false && keysOn == true) {
-          executeKeyMap(i);
+    void turnOffAllKeyColors(){
+      for (uint8_t i = 0; i < NUMBER_OF_KEYS; i++) {
+        pixels.setPixelColor(i, 0, 0, 0, 0);
+      }
+    }
+
+    void setHoveredKeyColor(int hoveredKeyIndex){
+      for (uint8_t i = 0; i < NUMBER_OF_KEYS; i++) {
+        if (hoveredKeyIndex == i){
+          for (const auto& colorOption : colorOptions) {
+            if(keyMap[i].colorName == colorOption.colorName){
+              pixels.setPixelColor(i, colorOption.color);
+            }
+          }
+        } else {
+          pixels.setPixelColor(i, 0, 0, 0, 0);
         }
-        setKeyDown(i, true);
+      }
+    }
+
+    void checkForKeyInput(){
+      for (int i = 0; i < NUMBER_OF_KEYS; i++) {
+        if (!digitalRead(i + 1)) { // switch pressed!
+          Serial.print("Switch "); Serial.println(i);
+          if (isKeyDown(i) == false && keysOn == true) {
+            executeKeyMap(i);
+          }
+          setKeyDown(i, true);
+        } else {
+          setKeyDown(i, false);
+        }
+      }
+    }
+
+    void executeKeyMap(int keyIndex) {
+      for (int i = 0; i < sizeof(keyMap[keyIndex].actions) / sizeof(keyMap[keyIndex].actions[0]); i++) {
+        Keyboard.press(keyMap[keyIndex].actions[i]);
+      }
+      Keyboard.releaseAll();
+    }
+
+    bool isKeyDown(int keyIndex){
+      return keyMap[keyIndex].isDown;
+    }
+
+    void setKeyDown(int keyIndex, bool value) {
+      keyMap[keyIndex].isDown = value;
+    }
+
+    void toggleKeyFunc(){
+      if (keysOn == true) {
+        keysOn = false;
       } else {
-        setKeyDown(i, false);
+        keysOn = true;
       }
     }
-  }
-
-  void executeKeyMap(int keyIndex) {
-    for (int i = 0; i < sizeof(keyMap[keyIndex].actions) / sizeof(keyMap[keyIndex].actions[0]); i++) {
-      Keyboard.press(keyMap[keyIndex].actions[i]);
+  
+    void drawKeys(){
+      display.println("CHOOSE KEY:");
+      for(int i = (cursorPosition < 4) ? 0 : (cursorPosition - 4); i <= ((cursorPosition < 4) ? 4 : cursorPosition); i++){
+          display.setCursor(0, cursorRowPosition += 8);
+          if (i == NUMBER_OF_KEYS){
+            turnOffAllKeyColors();
+            display.setTextColor(SH110X_BLACK, SH110X_WHITE);
+            display.println("BACK");
+            display.setTextColor(SH110X_WHITE, SH110X_BLACK);
+          } else {
+            if (cursorPosition == i) {
+              display.setTextColor(SH110X_BLACK, SH110X_WHITE);
+              setHoveredKeyColor(i);
+            }
+            display.print("Key ");
+            display.print(keyMap[i].keyIndex);
+            if(i <= 9){
+              display.print(" ");
+            }
+            display.print(" -  ");
+            display.println(keyMap[i].colorName);
+            display.setTextColor(SH110X_WHITE, SH110X_BLACK);
+          }
+      }
     }
-    Keyboard.releaseAll();
-  }
 
-  bool isKeyDown(int keyIndex){
-    return keyMap[keyIndex].isDown;
-  }
-
-  void setKeyDown(int keyIndex, bool value) {
-    keyMap[keyIndex].isDown = value;
-  }
-
-  void toggleKeyFunc(){
-    if (keysOn == true) {
-      keysOn = false;
-    } else {
-      keysOn = true;
+    void drawColors(){
+      Serial.println();
+      display.println("CHOOSE COLOR:");
+      for(int i = (colorCursorPosition < 4) ? 0 : (colorCursorPosition - 4); i <= ((colorCursorPosition < 4) ? 4 : colorCursorPosition); i++){
+        if (colorCursorPosition == i) {
+          display.setTextColor(SH110X_BLACK, SH110X_WHITE);
+          keyMap[cursorPosition].colorName = colorOptions[i].colorName;
+          pixels.setPixelColor(cursorPosition, colorOptions[i].color);
+        }
+        display.println(colorOptions[i].colorName);
+        display.setTextColor(SH110X_WHITE, SH110X_BLACK);
+      }
     }
-  }
+
+    int findIndexOfColor(const char* colorToFind){
+      for (int i = 0; i < sizeof(colorOptions) / sizeof(colorOptions[0]); i++){
+        if (colorOptions[i].colorName == colorToFind){
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    void setCursor(){
+      cursorPosition += encoder_direction;
+      if (cursorPosition == NUMBER_OF_KEYS + 1) {
+        cursorPosition = 0;
+      } else if (cursorPosition == -1){
+        cursorPosition = NUMBER_OF_KEYS;
+      }
+    }
+
+    void setColorCursor(){
+      colorCursorPosition += encoder_direction;
+      if (colorCursorPosition == sizeof(colorOptions) / sizeof(colorOptions[0])) {
+        colorCursorPosition = 0;
+      } else if (colorCursorPosition == -1){
+        colorCursorPosition = sizeof(colorOptions) / sizeof(colorOptions[0]) - 1;
+      }
+    }
+
+    void itemPressed(){
+      if (cursorPosition == NUMBER_OF_KEYS){
+        cursorPosition = 0;
+        inKeyMenu = false;
+      } else if (drawColorsActive == true) {
+        drawColorsActive = false;
+      } else {
+        int indexOfColor = findIndexOfColor(keyMap[cursorPosition].colorName);
+        colorCursorPosition = (indexOfColor != -1) ? indexOfColor : 0;
+        drawColorsActive = true;
+      }
+    }
 };
 
 
@@ -270,7 +376,7 @@ class ActionMenuItem : public BasicMenuItem {
 
 };
 
-BasicMenuItem* keyMenuList[] = { new ActionMenuItem("Key Functionality", &setBrightness), new ActionMenuItem("Key Color", &inputCallbackNew), nullptr };
+BasicMenuItem* keyMenuList[] = { new ActionMenuItem("Key Functionality", &setBrightness), new ActionMenuItem("Key Color", &drawKeys), nullptr };
 TestingMenuScreen* keyMenu = new TestingMenuScreen(keyMenuList, true);
 
 BasicMenuItem* settingMenuList[] = { new ActionMenuItem("LED Brightness", &setBrightness), nullptr };
@@ -324,6 +430,7 @@ class MenuManager {
           } else if (menuList[i]->getItemTitle() == "BACK") {
             Serial.println("BACK");
             menuList[i]->isCurrentlyActive = false;
+            menuList[i]->cursorPosition = 0;
             menuList[0]->isCurrentlyActive = true;
             break;
           }
@@ -374,7 +481,7 @@ void setup() {
   display.display();
   
   // set all mechanical keys to inputs
-  for (uint8_t i=0; i<=12; i++) {
+  for (uint8_t i = 0; i <= NUMBER_OF_KEYS; i++) {
     pinMode(i, INPUT_PULLUP);
   }
 
@@ -413,13 +520,13 @@ void loop() {
   display.println("* Adafruit Macropad *");
   display.setCursor(0, cursorRowPosition += 16);
 
-  readAndSetEncoderPositions();
+  if(encoderDown == false) {
+    readAndSetEncoderPositions();
+  }
 
   if (menuManager->runningCallback == true){
-    // screen->runCallBack();
     menuManager->runCallback();
   } else {
-    // screen->drawMenu();
     menuManager->drawActiveMenu();
   }
 
@@ -452,8 +559,16 @@ void loop() {
     } else if (encoderDown == true && keyManager->keysOn == true && lightsOff == false) {
       // if encoder was pressed but since let go and the lights are one it means a menu option was selected
       // execute selection
-      Serial.println("calling itemPressed");
-      menuManager->itemPressed();
+      if (keyManager->inKeyMenu) {
+        Serial.println("calling key itemPressed");
+        keyManager->itemPressed();
+        if (keyManager->inKeyMenu == false){
+          menuManager->runningCallback = false;
+        }
+      } else {
+        Serial.println("calling menu itemPressed");
+        menuManager->itemPressed();
+      }
     }
     // then reset the values
     hasBeenToggled = false;
@@ -464,7 +579,10 @@ void loop() {
   // loop through all 12 keys to check if one was pressed
   keyManager->checkForKeyInput();
 
-  keyManager->setAllKeyColors();
+  if (keyManager->inKeyMenu == false){
+    keyManager->setAllKeyColors();
+  }
+
   pixels.show();
 
   // display oled
@@ -483,11 +601,18 @@ void readAndSetEncoderPositions(){
     encoder_pos = newPos;
     
     if (menuManager->runningCallback == false) {
+      Serial.println("runningCallback == false - setting menu manager cursor");
       menuManager->setCursor();
+    } else if (keyManager->inKeyMenu == true) {
+      Serial.println("inkeymenu == true, setting key manager cursor");
+      if (keyManager->drawColorsActive == true){
+        keyManager->setColorCursor();
+      } else {
+        keyManager->setCursor();
+      }
     }
   }
 }
-
 
 
 void toggleLights() {
@@ -506,8 +631,14 @@ void toggleLights() {
   }
 }
 
-
-
+void drawKeys(){
+  keyManager->inKeyMenu = true;
+  if (keyManager->drawColorsActive == true){
+    keyManager->drawColors();
+  } else {
+    keyManager->drawKeys();
+  }
+}
 
 
 void setBrightness(){
@@ -520,4 +651,3 @@ void setBrightness(){
   pixels.setBrightness(brightnessValue);
 
 }
-
